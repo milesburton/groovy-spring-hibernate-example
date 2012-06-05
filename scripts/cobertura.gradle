@@ -1,0 +1,95 @@
+apply plugin: 'java'
+
+configurations{
+    coberturaRuntime {extendsFrom testRuntime}
+}
+
+dependencies {
+    coberturaRuntime ('net.sourceforge.cobertura:cobertura:1.9.3') {
+        exclude module:'ant-launcher'
+    }
+}
+
+String serFile = "cobertura.ser"
+String classes = "${project.sourceSets.main.output.classesDir}"
+String classesCopy = "${classes}-copy"
+
+task unitTestCobertura(type: Test) {
+    systemProperties = System.properties
+
+    doFirst {
+        coberturaInstrumentClasses(serFile, classesCopy, classes)
+    }
+
+    doLast {
+        coberturReportGenerate(serFile, classesCopy, classes)
+    }
+
+    beforeTest {
+        descriptor ->
+        logger.lifecycle("Running test: " + descriptor)
+    }
+}
+
+task integrationTestCobertura(type: Test) {
+    systemProperties = System.properties
+
+    doFirst {
+        coberturaInstrumentClasses(serFile, classesCopy, classes)
+    }
+
+    doLast {
+        coberturReportGenerate(serFile, classesCopy, classes)
+    }
+
+    beforeTest {
+        descriptor ->
+        logger.lifecycle("Running test: " + descriptor)
+    }
+}
+
+
+
+private void coberturaInstrumentClasses(String serFile, String classesCopy, String classes) {
+    logger.quiet "Instrumenting classes for Cobertura"
+    ant {
+        delete(file:serFile, failonerror:false)
+        delete(dir: classesCopy, failonerror:false)
+        copy(todir: classesCopy) { fileset(dir: classes) }
+
+        taskdef(resource:'tasks.properties', classpath: configurations.coberturaRuntime.asPath)
+        'cobertura-instrument'(datafile: serFile) {
+            fileset(dir: classes,
+                    includes:"**/*.class",
+                    excludes:"**/*Test.class")
+        }
+    }
+}
+
+private void coberturReportGenerate(String serFile, String classesCopy, String classes) {
+    if (new File(classesCopy).exists()) {
+        ant.'cobertura-report'(destdir:"${project.reportsDir}/cobertura",
+                               format:'xml', srcdir:"src/main/groovy", datafile: serFile)
+
+        ant.delete(file: classes)
+        ant.move(file: classesCopy, tofile: classes)
+    }
+}
+
+task dependentUnitTestCobertura(dependsOn: [clean, unitTestCobertura]) << {
+    println '################## Finished Sonar Unit Tests #####################'
+}
+
+task dependentIntegrationTestCobertura(dependsOn: [dependentUnitTestCobertura, integrationTestCobertura]) << {
+    println '############## Finished Sonar Integration Tests ##################'
+}
+
+task coberturaXml(dependsOn: dependentIntegrationTestCobertura) {
+
+    dependencies {
+        testRuntime ('net.sourceforge.cobertura:cobertura:1.9.3') {
+            exclude module:'ant-launcher'
+        }
+    }
+}
+
